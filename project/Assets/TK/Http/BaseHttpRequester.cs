@@ -5,7 +5,6 @@ using UnityEngine.Events;
 
 namespace TK.Http
 {
-
 	public abstract class BaseHttpRequester : MonoBehaviour
 	{
 		public enum HttpMethod
@@ -25,6 +24,14 @@ namespace TK.Http
 			Text
 		}
 
+        public class PriorityRequest
+        {
+            public IHttpRequestData reqData = null;
+            public UnityAction<HttpRequestNode> onSuccess = null;
+            public UnityAction<HttpRequestNode> onFailure = null;
+            public UnityAction<HttpRequestNode> onError = null;
+        }
+
 		public abstract class HttpRequestNode
 		{
 			public abstract string ResponseError { get; }
@@ -40,13 +47,19 @@ namespace TK.Http
 			public abstract void Destroy ();
 		}
 
+        public delegate PriorityRequest PriorityRequestForStatusCode(int statusCode);
+
+        static public PriorityRequestForStatusCode priorityRequestForStatusCode = null;
+
+        private Stack<PriorityRequest> priorityRequests = new Stack<PriorityRequest>();
+
 		private UnityAction<HttpRequestNode> onSuccess = null;
 		private UnityAction<HttpRequestNode> onFailure = null;
 		private UnityAction<HttpRequestNode> onError = null;
 		private UnityAction<HttpRequestNode> onFinishEachRequest = null;
 		private UnityAction onFinish = null;
 
-		private Queue<HttpRequestNode> requestQueue = new Queue<HttpRequestNode> ();
+        private Queue<IHttpRequestData> requestQueue = new Queue<IHttpRequestData> ();
 		private HttpRequestNode request = null;
 		private bool isDestroying = false;
 		private bool isSending = false;
@@ -111,11 +124,9 @@ namespace TK.Http
 
 			for (int i = 0; i < requests.Length; i++)
 			{
-				var r = requests[i];
-				var node = CreateRequestNode (r);
-				node.Setup (r);
-				requestQueue.Enqueue (node);
+                requestQueue.Enqueue(requests[i]);
 			}
+
 			return this;
 		}
 
@@ -129,14 +140,111 @@ namespace TK.Http
 			return AddRequest (requests.ToArray ());
 		}
 
+        private HttpRequestNode CreateReq(IHttpRequestData reqData)
+        {
+            var req = CreateRequestNode(reqData);
+            req.Setup(reqData);
+            return req;
+        }
+
+        private IEnumerator Coro_ExecutePriorityRequest(PriorityRequest newReq)
+        {
+            priorityRequests.Push(newReq);
+
+            while (priorityRequests.Count > 0)
+            {
+                var req = priorityRequests.Pop();
+
+                request = CreateReq(req.reqData);
+
+                yield return request.Send();
+
+                if (priorityRequestForStatusCode != null)
+                {
+                    var pReq = priorityRequestForStatusCode(request.ResponseCode);
+
+                    if (pReq != null && pReq.reqData != null)
+                    {
+                        if (request != null)
+                        {
+                            request.Destroy();
+                            request = null;
+                        }
+
+                        priorityRequests.Push(pReq);
+                        priorityRequests.Push(req);
+
+                        continue;
+                    }
+                }
+
+                if (request.IsError)
+                {
+                    if (req.onError != null)
+                        req.onError(request);
+                }
+                else
+                {
+                    if (request.IsSuccess)
+                    {
+                        if (req.onSuccess != null)
+                            req.onSuccess(request);
+                    }
+                    else
+                    {
+                        if (req.onFailure != null)
+                            req.onFailure(request);
+                    }
+                }
+
+                if (request != null)
+                {
+                    request.Destroy();
+                    request = null;
+                }
+            }
+        }
+
 		private IEnumerator Coro_Send ()
 		{
 			while (requestQueue.Count > 0)
 			{
-				request = requestQueue.Dequeue ();
+                var reqData = requestQueue.Dequeue();
+
+                request = CreateReq(reqData);
 
 				// Send request to server.
 				yield return request.Send ();
+
+                // TODO: This handles to execute agent priority requests based on verified status code
+                // Example: when request token is expired, so there must be a priority request to refresh token to be executed first
+                // and then continue the other requests again that has issue with expired token
+                if (priorityRequestForStatusCode != null)
+                {
+                    var pReq = priorityRequestForStatusCode(request.ResponseCode);
+
+                    if (pReq != null && pReq.reqData != null)
+                    {
+                        if (request != null)
+                        {
+                            request.Destroy();
+                            request = null;
+                        }
+
+                        var leftReqData = requestQueue.ToArray();
+                        requestQueue.Clear();
+
+                        // Add the request that has problem based on checked status code above 
+                        requestQueue.Enqueue(reqData);
+
+                        for (int i = 0; i < leftReqData.Length; i++)
+                            requestQueue.Enqueue(leftReqData[i]);
+
+                        yield return Coro_ExecutePriorityRequest(pReq);
+
+                        continue;
+                    }
+                }
 
 				if (request.IsError)
 				{
@@ -173,7 +281,7 @@ namespace TK.Http
 			// Tell that the instance of this class is being destroyed.
 			isDestroying = true;
 
-			yield return new WaitForEndOfFrame ();
+            yield return 0;
 
 			// Destroy in 0.01 sec
 			Destroy (gameObject, 0.01f);
@@ -189,6 +297,12 @@ namespace TK.Http
 
 			if (isSending)
 			{
+                SetOnSuccess(null);
+                SetOnFailure(null);
+                SetOnError(null);
+                SetOnFinish(null);
+                SetOnFinishEachRequest(null);
+
 				StopAllCoroutines ();
 
 				if (request != null)
@@ -196,11 +310,6 @@ namespace TK.Http
 					request.Destroy ();
 					request = null;
 				}
-			}
-
-			while (requestQueue.Count > 0)
-			{
-				requestQueue.Dequeue ().Destroy ();
 			}
 
 			Destroy (gameObject);

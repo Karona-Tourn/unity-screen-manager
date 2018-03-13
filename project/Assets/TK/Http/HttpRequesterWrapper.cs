@@ -9,14 +9,20 @@ namespace TK.Http
 		private LinkedList<BaseHttpRequester> requestList = new LinkedList<BaseHttpRequester> ();
 		private LinkedListNode<BaseHttpRequester> node = null;
 
+        public bool IsEmpty
+        {
+            get { return requestList.Count == 0; }
+        }
+
 		private void LateUpdate ()
 		{
 			node = requestList.First;
 			while (node != null)
 			{
-				if (node.Value == null)
-					node.List.Remove (node);
-				node = node.Next;
+                var nextNode = node.Next;
+                if (node.Value == null)
+                    node.List.Remove(node);
+                node = nextNode;
 			}
 		}
 

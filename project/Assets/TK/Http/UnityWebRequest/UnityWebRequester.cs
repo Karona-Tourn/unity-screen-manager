@@ -19,7 +19,7 @@ namespace TK.Http
 
 			public override string ResponseText { get { return (request.downloadHandler is DownloadHandlerBuffer ? ((DownloadHandlerBuffer)request.downloadHandler).text : null); } }
 
-			public override Texture2D ResponseTexture { get { return (request.downloadHandler is DownloadHandlerTexture ? ((DownloadHandlerTexture)request.downloadHandler).texture : null); } }
+            public override Texture2D ResponseTexture { get { return (request.downloadHandler is DownloadHandlerTexture ? DownloadHandlerTexture.GetContent(request) : null); } }
 
 			public override bool IsDone { get { return request.isDone; } }
 
