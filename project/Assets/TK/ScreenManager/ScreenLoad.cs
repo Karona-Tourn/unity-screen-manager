@@ -111,17 +111,20 @@ namespace TK.ScreenManagement
 			{
 				int srcLoadCount = load.resources.Count;
 
-				var RLM = ResourceLoadManager.Instance;
-
 				foreach (var task in load.resources)
 				{
 					task.status = TaskStatus.Pending;
-					RLM.Load (task.name, task.path, task.type, res =>
+					ResourceManagement.ResourceManager.Load ( new ResourceManagement.ResourceManager.LoadTask ()
+					{
+						path = System.IO.Path.Combine ( task.path, task.name ),
+						type = task.type,
+						completed = assets =>
 						{
-							task.loadedObj = res.LoadedObject;
+							if ( assets.Length > 0 ) task.loadedObj = assets[0];
 							srcLoadCount--;
 							task.status = TaskStatus.Ready;
-						});
+						}
+					} );
 				}
 				yield return new WaitUntil (() => srcLoadCount == 0);
 			}
