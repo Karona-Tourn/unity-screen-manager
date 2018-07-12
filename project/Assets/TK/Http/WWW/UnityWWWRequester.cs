@@ -5,25 +5,20 @@ using UnityEngine;
 
 namespace TK.Http
 {
-
 	public class UnityWWWRequester : BaseHttpRequester
 	{
 		public class WWWRequetNode : HttpRequestNode
 		{
 			private WWW www = null;
+			private int responseCode = 0;
+			private bool isHttpError = false;
+			private bool isNetworkError = false;
 
 			public override int ResponseCode
 			{
 				get
 				{
-					string status = null;
-					if (www.responseHeaders.TryGetValue ("STATUS", out status))
-					{
-						// If OK, status is "HTTP/1.1 200 OK"
-						string[] st = status.Split (' ');
-						return int.Parse (st[1]);
-					}
-					return 0;
+					return responseCode;
 				}
 			}
 
@@ -33,7 +28,7 @@ namespace TK.Http
 
 			public override bool IsDone { get { return www.isDone; } }
 
-			public override bool IsError { get { return string.IsNullOrEmpty (www.error) == false; } }
+			public override bool IsError { get { return isHttpError || isNetworkError; } }
 
 			public override string ResponseError { get { return www.error; } }
 
@@ -53,10 +48,34 @@ namespace TK.Http
 				}
 			}
 
+            public override bool IsNetworkError
+            {
+                get
+                {
+                    return isNetworkError;
+                }
+            }
+
+            public override bool IsHttpError
+            {
+                get
+                {
+                    return isHttpError;
+                }
+            }
+
+			public override HttpCodeStatus ResponseStatusCode
+			{
+				get
+				{
+					return (HttpCodeStatus)ResponseCode;
+				}
+			}
+
 			public WWWRequetNode (IHttpRequestData req)
 			{
 				var dh = req.DataAndHeader;
-				var headers = (System.Collections.Generic.Dictionary<string, string>)dh["header"];
+				var headers = (Dictionary<string, string>)dh["header"];
 				foreach(var kv in req.Headers)
 				{
 					if (headers.ContainsKey (kv.Key))
@@ -81,6 +100,21 @@ namespace TK.Http
 			public override IEnumerator Send ()
 			{
 				yield return www;
+
+				string status = null;
+				if ( www.responseHeaders.TryGetValue ( "STATUS", out status ) )
+				{
+					// If OK, status is "HTTP/1.1 200 OK"
+					string[] st = status.Split (' ');
+					responseCode = int.Parse ( st[1] );
+				}
+
+				if ( !string.IsNullOrEmpty ( www.error ) )
+				{
+					isNetworkError = (www.error == "Cannot resolve destination host");
+				}
+
+				isHttpError = ResponseStatusCode != HttpCodeStatus.OK;
 			}
 
 			public override void Setup (IHttpRequestData requestData)
@@ -97,9 +131,9 @@ namespace TK.Http
 		/// Create requester
 		/// </summary>
 		/// <returns>Return object of UnityWWWRequester</returns>
-		public static BaseHttpRequester Create ()
+		public static BaseHttpRequester Create ( bool dontDestroyOnLoad = false )
 		{
-			return new GameObject ("UWR" + Guid.NewGuid ().ToString ()).AddComponent<UnityWWWRequester> ();
+			return Create<UnityWWWRequester> ( dontDestroyOnLoad );
 		}
 	}
 

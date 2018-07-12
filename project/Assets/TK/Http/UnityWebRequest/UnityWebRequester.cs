@@ -1,4 +1,3 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -6,7 +5,6 @@ using UnityEngine.Networking;
 
 namespace TK.Http
 {
-
 	public class UnityWebRequester : BaseHttpRequester
 	{
 		public class RequestNode : HttpRequestNode
@@ -27,11 +25,7 @@ namespace TK.Http
 			{
 				get
 				{
-#if UNITY_2017_1_OR_NEWER
-					return request.isNetworkError;
-#else
-					return request.isError;
-#endif
+                    return IsNetworkError || IsHttpError;
 				}
 			}
 
@@ -48,6 +42,34 @@ namespace TK.Http
 				get
 				{
 					return request.GetResponseHeaders ();
+				}
+			}
+
+            public override bool IsNetworkError
+            {
+                get
+                {
+#if UNITY_2017_1_OR_NEWER
+                    return request.isNetworkError;
+#else
+                    return request.isError;
+#endif
+                }
+            }
+
+            public override bool IsHttpError
+            {
+                get
+                {
+                    return request.isHttpError;
+                }
+            }
+
+			public override HttpCodeStatus ResponseStatusCode
+			{
+				get
+				{
+					return (HttpCodeStatus)ResponseCode;
 				}
 			}
 
@@ -105,7 +127,7 @@ namespace TK.Http
 				{
 					var dh = requestData.DataAndHeader;
 					request.uploadHandler = new UploadHandlerRaw ((byte[])dh["data"]);
-					System.Collections.Generic.Dictionary<string, string> formHeaders = (System.Collections.Generic.Dictionary<string, string>)dh["header"];
+					Dictionary<string, string> formHeaders = (Dictionary<string, string>)dh["header"];
 					if (formHeaders.ContainsKey ("Content-Type"))
 					{
 						request.uploadHandler.contentType = formHeaders["Content-Type"];
@@ -130,7 +152,7 @@ namespace TK.Http
 					}
 				}
 
-				var headers = new System.Collections.Generic.Dictionary<string, string> (requestData.Headers);
+				var headers = new Dictionary<string, string> (requestData.Headers);
 				if (headers != null)
 				{
 					headers.Remove ("Content-Type");
@@ -151,10 +173,9 @@ namespace TK.Http
 		/// Create requester
 		/// </summary>
 		/// <returns>Return object of UnityWebRequester</returns>
-		public static BaseHttpRequester Create ()
+		public static BaseHttpRequester Create ( bool dontDestroyOnLoad = false )
 		{
-			return new GameObject ("UWR" + Guid.NewGuid ().ToString ()).AddComponent<UnityWebRequester> ();
+			return Create<UnityWebRequester> ( dontDestroyOnLoad );
 		}
 	}
-
 }

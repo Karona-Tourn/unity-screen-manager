@@ -1,4 +1,3 @@
-using System;
 using System.Text.RegularExpressions;
 using UnityEngine;
 
@@ -30,9 +29,9 @@ namespace TK.Http
 
 		public static string AppVersion { get { return Application.version; } }
 
-		public static string DeviceName { get { return Convert.ToBase64String (System.Text.Encoding.UTF8.GetBytes (Regex.Replace (SystemInfo.deviceName, "[^\\w\\._]", " "))); } }
+		public static string DeviceName { get { return Regex.Replace (SystemInfo.deviceName, "[^\\w\\._]", " "); } }
 
-		public static string UDID { get { return Regex.Replace (SystemInfo.deviceUniqueIdentifier, "[^\\w\\._]", " "); } }
+        public static string UDID { get { return Regex.Replace (SystemInfo.deviceUniqueIdentifier, "[^\\w\\._]", "-"); } }
 
 		public static string Platform { get { return Regex.Replace (Application.platform.ToString (), "[^\\w\\._]", " "); } }
 

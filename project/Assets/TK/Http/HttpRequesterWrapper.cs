@@ -20,8 +20,10 @@ namespace TK.Http
 			while (node != null)
 			{
                 var nextNode = node.Next;
-                if (node.Value == null)
-                    node.List.Remove(node);
+				if ( node.Value == null )
+				{
+					node.List.Remove ( node );
+				}
                 node = nextNode;
 			}
 		}
@@ -31,8 +33,10 @@ namespace TK.Http
 			node = requestList.First;
 			while (node != null)
 			{
-				if (node.Value != null)
+				if ( node.Value != null )
+				{
 					node.Value.Abort ();
+				}
 				node = node.Next;
 			}
 			requestList.Clear ();

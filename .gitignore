@@ -5,3 +5,5 @@ project/Assembly-CSharp.csproj
 project/Assembly-CSharp-Editor.csproj
 project/project.sln
 project/obj/
+project/project.csproj
+project/project.Editor.csproj
