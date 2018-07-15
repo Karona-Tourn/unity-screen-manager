@@ -86,10 +86,16 @@ namespace TK.Http
 
 			public override void Destroy ()
 			{
-				if (request.isDone)
+				if ( request == null )
+				{
+					return;
+				}
+
+				if ( request.isDone )
 				{
 					request.Abort ();
 				}
+
 				request.Dispose ();
 				request = null;
 			}
@@ -125,9 +131,11 @@ namespace TK.Http
 
 				if (requestData.Method != HttpMethod.Get && requestData.Method != HttpMethod.Head)
 				{
-					var dh = requestData.DataAndHeader;
-					request.uploadHandler = new UploadHandlerRaw ((byte[])dh["data"]);
+					Hashtable dh = requestData.DataAndHeader;
 					Dictionary<string, string> formHeaders = (Dictionary<string, string>)dh["header"];
+
+					request.uploadHandler = new UploadHandlerRaw ( (byte[])dh["data"] );
+
 					if (formHeaders.ContainsKey ("Content-Type"))
 					{
 						request.uploadHandler.contentType = formHeaders["Content-Type"];
@@ -152,14 +160,12 @@ namespace TK.Http
 					}
 				}
 
-				var headers = new Dictionary<string, string> (requestData.Headers);
-				if (headers != null)
+				Dictionary<string, string> headers = new Dictionary<string, string> (requestData.Headers);
+
+				headers.Remove ( "Content-Type" );
+				foreach ( var kv in headers )
 				{
-					headers.Remove ("Content-Type");
-					foreach (var kv in headers)
-					{
-						request.SetRequestHeader (kv.Key, kv.Value);
-					}
+					request.SetRequestHeader ( kv.Key, kv.Value );
 				}
 			}
 		}

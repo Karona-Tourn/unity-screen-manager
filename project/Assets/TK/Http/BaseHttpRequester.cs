@@ -98,6 +98,8 @@ namespace TK.Http
 
 		public abstract class HttpRequestNode
 		{
+			private bool disposed = false;
+
 			public abstract string ResponseError { get; }
 			public abstract HttpCodeStatus ResponseStatusCode { get; }
 			public abstract int ResponseCode { get; }
@@ -123,7 +125,7 @@ namespace TK.Http
 			public UnityAction<HttpRequestNode> onFinish = null;
 		}
 
-        public delegate HttpRequest PriorityRequestForStatusCode (int statusCode);
+        public delegate HttpRequest PriorityRequestForStatusCode ( HttpRequestNode requestNode );
 
         static public PriorityRequestForStatusCode priorityRequestForStatusCode = null;
 
@@ -136,13 +138,18 @@ namespace TK.Http
 		private UnityAction onFinish = null;
 
         private Queue<HttpRequest> requestQueue = new Queue<HttpRequest> ();
-		private HttpRequestNode request = null;
+		private HttpRequestNode requestNode = null;
 		private bool isDestroying = false;
 		private bool isPending = false;
 		private bool destroyWhenDone = false;
 		private Coroutine pendingCoroutine = null;
 
 		protected abstract HttpRequestNode CreateRequestNode (IHttpRequestData requestData);
+
+		public bool IsBusy
+		{
+			get { return isPending || isDestroying; }
+		}
 
 		/// <summary>
 		/// Set event on success.
@@ -271,171 +278,191 @@ namespace TK.Http
 
         private IEnumerator Coro_ExecutePriorityRequest( HttpRequest newReq )
         {
-            priorityRequests.Push(newReq);
+			HttpRequest httpReq = null;
+			HttpRequest pHttpReq = null;
+
+			priorityRequests.Push(newReq);
 
             while (priorityRequests.Count > 0)
             {
-				HttpRequest req = priorityRequests.Pop();
+				httpReq = priorityRequests.Pop();
+                requestNode = CreateReq(httpReq.requestData);
 
-                request = CreateReq(req.requestData);
+				yield return requestNode.Send ();
 
-                yield return request.Send();
-
-                if (priorityRequestForStatusCode != null)
-                {
-                    var pReq = priorityRequestForStatusCode(request.ResponseCode);
-
-                    if (pReq != null && pReq.requestData != null)
-                    {
-                        if (request != null)
-                        {
-                            request.Destroy();
-                            request = null;
-                        }
-
-                        priorityRequests.Push(pReq);
-                        priorityRequests.Push(req);
-
-                        continue;
-                    }
-                }
-
-                if (request.IsNetworkError)
-                {
-					if ( req.onError != null )
-					{
-						req.onError ( request );
-					}
-                }
-                else
-                {
-                    if (request.IsSuccess)
-                    {
-						if ( req.onSuccess != null )
-						{
-							req.onSuccess ( request );
-						}
-                    }
-                    else
-                    {
-						if ( req.onFailure != null )
-						{
-							req.onFailure ( request );
-						}
-                    }
-                }
-
-				if ( req.onFinish != null )
+				if ( priorityRequestForStatusCode != null )
 				{
-					req.onFinish ( request );
+					pHttpReq = priorityRequestForStatusCode ( requestNode );
+
+					if ( pHttpReq != null && pHttpReq.requestData != null )
+					{
+						if ( requestNode != null )
+						{
+							requestNode.Destroy ();
+							requestNode = null;
+						}
+
+						priorityRequests.Push ( pHttpReq );
+						priorityRequests.Push ( httpReq );
+
+						httpReq = null;
+						pHttpReq = null;
+						continue;
+					}
+
+					pHttpReq = null;
 				}
 
-                if (request != null)
-                {
-                    request.Destroy();
-                    request = null;
-                }
-            }
+				if ( requestNode.IsNetworkError )
+				{
+					if ( httpReq.onError != null )
+					{
+						httpReq.onError ( requestNode );
+					}
+				}
+				else
+				{
+					if ( requestNode.IsSuccess )
+					{
+						if ( httpReq.onSuccess != null )
+						{
+							httpReq.onSuccess ( requestNode );
+						}
+					}
+					else
+					{
+						if ( httpReq.onFailure != null )
+						{
+							httpReq.onFailure ( requestNode );
+						}
+					}
+				}
+
+				if ( httpReq.onFinish != null )
+				{
+					httpReq.onFinish ( requestNode );
+				}
+
+				if ( requestNode != null )
+				{
+					requestNode.Destroy ();
+					requestNode = null;
+				}
+
+				httpReq = null;
+				pHttpReq = null;
+			}
         }
 
 		private IEnumerator Coro_Send ()
 		{
+			HttpRequest httpReq = null;
+			HttpRequest pHttpReq = null;
+
 			while (requestQueue.Count > 0)
 			{
-                HttpRequest httpReq = requestQueue.Dequeue();
-
-                request = CreateReq(httpReq.requestData);
+				httpReq = requestQueue.Dequeue();
+				requestNode = CreateReq(httpReq.requestData);
 
 				// Send request to server.
-				yield return request.Send ();
+				yield return requestNode.Send ();
 
-                // TODO: This handles to execute agent priority requests based on verified status code
-                // Example: when request token is expired, so there must be a priority request to refresh token to be executed first
-                // and then continue the other requests again that has issue with expired token
-                if (priorityRequestForStatusCode != null)
-                {
-                    var pReq = priorityRequestForStatusCode(request.ResponseCode);
+				// TODO: This handles to execute agent priority requests based on verified status code
+				// Example: when request token is expired, so there must be a priority request to refresh token to be executed first
+				// and then continue the other requests again that has issue with expired token
+				if ( priorityRequestForStatusCode != null )
+				{
+					pHttpReq = priorityRequestForStatusCode ( requestNode );
 
-                    if (pReq != null && pReq.requestData != null)
-                    {
-                        if (request != null)
-                        {
-                            request.Destroy();
-                            request = null;
-                        }
+					if ( pHttpReq != null && pHttpReq.requestData != null )
+					{
+						if ( requestNode != null )
+						{
+							requestNode.Destroy ();
+							requestNode = null;
+						}
 
-                        HttpRequest[] leftHttpReqs = requestQueue.ToArray();
-                        requestQueue.Clear();
+						HttpRequest[] leftHttpReqs = requestQueue.ToArray();
+						requestQueue.Clear ();
 
-                        // Add the request that has problem based on checked status code above 
-                        requestQueue.Enqueue(httpReq);
+						// Add the request that has problem based on checked status code above 
+						requestQueue.Enqueue ( httpReq );
 
 						for ( int i = 0; i < leftHttpReqs.Length; i++ )
 						{
 							requestQueue.Enqueue ( leftHttpReqs[i] );
 						}
 
-                        yield return Coro_ExecutePriorityRequest(pReq);
+						yield return Coro_ExecutePriorityRequest ( pHttpReq );
 
-                        continue;
-                    }
-                }
+						leftHttpReqs = null;
+						httpReq = null;
+						pHttpReq = null;
 
-                if (request.IsNetworkError)
+						continue;
+					}
+
+					pHttpReq = null;
+				}
+
+				if ( requestNode.IsNetworkError )
 				{
 					if ( onError != null )
 					{
-						onError ( request );
+						onError ( requestNode );
 					}
 
 					if ( httpReq.onError != null )
 					{
-						httpReq.onError ( request );
+						httpReq.onError ( requestNode );
 					}
 				}
 				else
 				{
-					if (request.IsSuccess)
+					if ( requestNode.IsSuccess )
 					{
 						if ( onSuccess != null )
 						{
-							onSuccess ( request );
+							onSuccess ( requestNode );
 						}
 
 						if ( httpReq.onSuccess != null )
 						{
-							httpReq.onSuccess ( request );
+							httpReq.onSuccess ( requestNode );
 						}
 					}
 					else
 					{
 						if ( onFailure != null )
 						{
-							onFailure ( request );
+							onFailure ( requestNode );
 						}
 
 						if ( httpReq.onFailure != null )
 						{
-							httpReq.onFailure ( request );
+							httpReq.onFailure ( requestNode );
 						}
 					}
 				}
 
 				if ( onFinishEachRequest != null )
 				{
-					onFinishEachRequest ( request );
+					onFinishEachRequest ( requestNode );
 				}
 
 				if ( httpReq.onFinish != null )
 				{
-					httpReq.onFinish ( request );
+					httpReq.onFinish ( requestNode );
 				}
 
-				if (request != null)
+				if( requestNode != null )
 				{
-					request.Destroy ();
-					request = null;
+					requestNode.Destroy ();
+					requestNode = null;
 				}
+
+				httpReq = null;
+				pHttpReq = null;
 			}
 
 			if ( onFinish != null )
@@ -484,10 +511,10 @@ namespace TK.Http
 				StopCoroutine ( pendingCoroutine );
 				pendingCoroutine = null;
 
-				if (request != null)
+				if (requestNode != null)
 				{
-					request.Destroy ();
-					request = null;
+					requestNode.Destroy ();
+					requestNode = null;
 				}
 			}
 
@@ -506,10 +533,10 @@ namespace TK.Http
 				StopCoroutine ( pendingCoroutine );
 				pendingCoroutine = null;
 
-				if ( request != null )
+				if ( requestNode != null )
 				{
-					request.Destroy ();
-					request = null;
+					requestNode.Destroy ();
+					requestNode = null;
 				}
 
 				requestQueue.Clear ();
@@ -537,7 +564,7 @@ namespace TK.Http
 		public BaseHttpRequester Send ()
 		{
 			// Exit function if requester is being destroyed or being busy to send
-			if ( isPending || isDestroying )
+			if ( IsBusy )
 			{
 				return this;
 			}
@@ -550,7 +577,7 @@ namespace TK.Http
 
 		static public T Create<T> ( bool dontDestroyOnLoad = false ) where T : BaseHttpRequester
 		{
-			GameObject go = new GameObject ("UWR" + Guid.NewGuid ().ToString ());
+			GameObject go = new GameObject ("UWR");
 
 			if ( dontDestroyOnLoad )
 			{

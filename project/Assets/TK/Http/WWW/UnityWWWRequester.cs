@@ -1,4 +1,3 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -74,9 +73,10 @@ namespace TK.Http
 
 			public WWWRequetNode (IHttpRequestData req)
 			{
-				var dh = req.DataAndHeader;
-				var headers = (Dictionary<string, string>)dh["header"];
-				foreach(var kv in req.Headers)
+				Hashtable dh = req.DataAndHeader;
+				Dictionary<string, string> headers = (Dictionary<string, string>)dh["header"];
+
+				foreach(KeyValuePair<string, string> kv in req.Headers)
 				{
 					if (headers.ContainsKey (kv.Key))
 					{
@@ -87,14 +87,19 @@ namespace TK.Http
 						headers.Add (kv.Key, kv.Value);
 					}
 				}
+
 				www = new WWW (req.URL, (byte[])dh["data"], headers);
 			}
 
 			public override void Destroy ()
 			{
+				if ( www == null )
+				{
+					return;
+				}
+
 				www.Dispose ();
 				www = null;
-				GC.Collect ();
 			}
 
 			public override IEnumerator Send ()
@@ -102,6 +107,7 @@ namespace TK.Http
 				yield return www;
 
 				string status = null;
+
 				if ( www.responseHeaders.TryGetValue ( "STATUS", out status ) )
 				{
 					// If OK, status is "HTTP/1.1 200 OK"
